@@ -4,6 +4,13 @@ Script to export a trained SCNN model to ONNX format for TensorRT inference.
 
 Uses fixed input size. Default 288x952 preserves KITTI aspect ratio
 (370x1226 -> 288x952, divisible by 8).
+
+SCNN produces two outputs:
+  - seg_pred: Segmentation logits (1, 5, H, W)
+  - exist_pred: Lane existence logits (1, 4)
+
+Usage:
+    python export_scnn_to_onnx.py --checkpoint /path/to/best.pth --output-dir onnxs
 """
 
 import argparse
@@ -34,7 +41,7 @@ class SCNNWrapper(Module):
         return seg_pred, exist_pred
 
 
-def export_scnn_model(checkpoint_path, output_path, input_height, input_width):
+def export_scnn_model(checkpoint_path: str, output_path: str, input_height: int, input_width: int):
     """Export SCNN model to ONNX format."""
     print('Creating SCNN model wrapper...')
     model = SCNNWrapper(checkpoint_path)
@@ -62,7 +69,7 @@ def export_scnn_model(checkpoint_path, output_path, input_height, input_width):
         )
         print(f'ONNX model saved to: {output_path}')
     except Exception as e:
-        print(f'✗ ONNX export failed: {e}')
+        print(f'ONNX export failed: {e}')
         raise
 
     # Test the exported model
@@ -71,17 +78,12 @@ def export_scnn_model(checkpoint_path, output_path, input_height, input_width):
         import onnx
         onnx_model = onnx.load(output_path)
         onnx.checker.check_model(onnx_model)
-        print('✓ ONNX model validation passed')
-
-        # Print output info
-        print('\nModel outputs:')
-        for output in onnx_model.graph.output:
-            print(f'  {output.name}: {[dim.dim_value for dim in output.type.tensor_type.shape.dim]}')
+        print('ONNX model validation passed')
     except ImportError:
-        print('⚠ ONNX package not available - skipping model validation')
-        print('  Install with: pip install onnx')
+        print('ONNX package not available - skipping model validation')
+        print('Install with: pip install onnx')
     except Exception as e:
-        print(f'✗ ONNX model validation failed: {e}')
+        print(f'ONNX model validation failed: {e}')
 
 
 if __name__ == '__main__':
@@ -92,7 +94,7 @@ if __name__ == '__main__':
     ap.add_argument('--width', type=int, default=952,
                     help='The width of the input image (default: 952 for KITTI aspect ratio)')
     ap.add_argument('--checkpoint', type=str, required=True,
-                    help='Path to checkpoint file')
+                    help='Path to trained SCNN checkpoint')
     ap.add_argument('--output-dir', type=str, default='onnxs',
                     help='The path to output ONNX file')
     args = vars(ap.parse_args())
