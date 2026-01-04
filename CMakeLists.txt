@@ -37,7 +37,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ModelGeneration.cmake)
 add_library(scnn_trt_backend STATIC
   src/scnn_trt_backend.cpp
   src/normalize_kernel.cu
-  src/decode_and_colorize_kernel.cu)
+  src/decode_and_colorize_kernel.cu
+  src/lane_utils.cpp)
 
 # Add model generation dependency to the library
 add_model_generation_dependency(scnn_trt_backend)

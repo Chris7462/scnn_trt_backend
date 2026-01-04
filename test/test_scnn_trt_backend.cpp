@@ -15,6 +15,7 @@
 #define private public
 #include "scnn_trt_backend/scnn_trt_backend.hpp"
 #undef private
+#include "scnn_trt_backend/lane_utils.hpp"
 
 
 class SCNNTrtBackendTest : public ::testing::Test
@@ -50,20 +51,6 @@ protected:
       throw std::runtime_error("Failed to load test image: " + image_path_);
     }
     return image;
-  }
-
-  cv::Mat create_overlay(const cv::Mat & original, const cv::Mat & segmentation, float alpha = 0.5f)
-  {
-    cv::Mat overlay;
-    cv::Mat seg_resized;
-
-    // Resize segmentation to match original image size
-    cv::resize(segmentation, seg_resized, original.size(), 0, 0, cv::INTER_NEAREST);
-
-    // Create weighted overlay
-    cv::addWeighted(original, 1.0f - alpha, seg_resized, alpha, 0, overlay);
-
-    return overlay;
   }
 
   void save_results(
@@ -129,7 +116,7 @@ TEST_F(SCNNTrtBackendTest, TestBasicInference)
   }
 
   // Create overlay
-  cv::Mat overlay = create_overlay(image, result.seg_pred, 0.5f);
+  cv::Mat overlay = scnn_trt_backend::utils::create_overlay(image, result.seg_pred, 0.5f);
   EXPECT_EQ(overlay.size(), image.size());
   EXPECT_EQ(overlay.type(), CV_8UC3);
 
@@ -228,7 +215,7 @@ TEST_F(SCNNTrtBackendTest, TestMultipleImages)
 
     try {
       auto result = detector_->infer(image);
-      auto overlay = create_overlay(image, result.seg_pred);
+      auto overlay = scnn_trt_backend::utils::create_overlay(image, result.seg_pred);
 
       // Print existence probabilities for each image
       std::cout << "Image: " << image_path << " - ";
