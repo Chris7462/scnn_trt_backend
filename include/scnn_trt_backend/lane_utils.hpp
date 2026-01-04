@@ -11,8 +11,7 @@ namespace utils
 {
 
 // Utility functions
-cv::Mat create_overlay(
-  const cv::Mat & original, const cv::Mat & segmentation, float alpha = 0.5f);
+cv::Mat create_overlay(const cv::Mat & original, const cv::Mat & segmentation);
 
 }  // namespace utils
 

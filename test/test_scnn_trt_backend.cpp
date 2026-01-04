@@ -116,7 +116,7 @@ TEST_F(SCNNTrtBackendTest, TestBasicInference)
   }
 
   // Create overlay
-  cv::Mat overlay = scnn_trt_backend::utils::create_overlay(image, result.seg_pred, 0.5f);
+  cv::Mat overlay = scnn_trt_backend::utils::create_overlay(image, result.seg_pred);
   EXPECT_EQ(overlay.size(), image.size());
   EXPECT_EQ(overlay.type(), CV_8UC3);
 
