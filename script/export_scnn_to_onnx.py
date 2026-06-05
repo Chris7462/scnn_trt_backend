@@ -9,6 +9,11 @@ SCNN produces two outputs:
   - seg_pred: Segmentation logits (1, 5, H, W)
   - exist_pred: Lane existence logits (1, 4)
 
+TensorRT 11+ note:
+  The --fp16 builder flag was removed in TensorRT 11. FP16 precision must now
+  be baked into the ONNX graph before engine compilation. This script exports
+  the model directly in FP16 by casting weights and inputs before export.
+
 Usage:
     python export_scnn_to_onnx.py --checkpoint /path/to/best.pth --output-dir onnxs
 """
@@ -42,14 +47,16 @@ class SCNNWrapper(Module):
 
 
 def export_scnn_model(checkpoint_path: str, output_path: str, input_height: int, input_width: int):
-    """Export SCNN model to ONNX format."""
+    """Export SCNN model directly in FP16 format for TensorRT 11+."""
     print('Creating SCNN model wrapper...')
     model = SCNNWrapper(checkpoint_path)
+    model.half()  # Cast all weights to FP16
 
     print('Preparing dummy input...')
-    dummy_input = torch.randn(1, 3, input_height, input_width)
+    dummy_input = torch.randn(1, 3, input_height, input_width).half()  # FP16 input
 
-    print('Exporting to ONNX...')
+    # --- Step 1: FP16 ONNX export ---
+    print('\n[Step 1/2] Exporting FP16 ONNX model...')
     try:
         torch.onnx.export(
             model,
@@ -65,15 +72,15 @@ def export_scnn_model(checkpoint_path: str, output_path: str, input_height: int,
                 'exist_pred': {0: 'batch_size'}
             },
             dynamo=False,
-            verbose=True
+            verbose=False
         )
-        print(f'ONNX model saved to: {output_path}')
+        print(f'FP16 ONNX model saved to: {output_path}')
     except Exception as e:
         print(f'ONNX export failed: {e}')
         raise
 
-    # Test the exported model
-    print('\nTesting ONNX model...')
+    # --- Step 2: Validate ONNX ---
+    print('\n[Step 2/2] Validating ONNX model...')
     try:
         import onnx
         onnx_model = onnx.load(output_path)
@@ -107,7 +114,7 @@ if __name__ == '__main__':
     checkpoint = args['checkpoint']
     output_dir = args['output_dir']
 
-    # Export to ONNX
+    # Export directly to FP16 ONNX
     print(f'=== Exporting SCNN for input size: {height}x{width} ===')
     output_path = os.path.join(output_dir, f'scnn_vgg16_{height}x{width}.onnx')
     export_scnn_model(
@@ -117,4 +124,4 @@ if __name__ == '__main__':
         input_width=width
     )
 
-    print('ONNX export completed.')
+    print('\nONNX export completed.')
