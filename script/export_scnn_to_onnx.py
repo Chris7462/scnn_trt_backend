@@ -72,7 +72,7 @@ def export_scnn_model(checkpoint_path: str, output_path: str, input_height: int,
                 'exist_pred': {0: 'batch_size'}
             },
             dynamo=False,
-            verbose=False
+            verbose=True
         )
         print(f'FP16 ONNX model saved to: {output_path}')
     except Exception as e:
