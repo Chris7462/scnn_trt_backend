@@ -5,6 +5,7 @@
 # Model configuration - change these variables to use different models
 set(MODEL_NAME "scnn_vgg16_288x952" CACHE STRING "Base name of the model")
 set(EXPORT_SCRIPT "export_scnn_to_onnx.py" CACHE STRING "Python script for ONNX export")
+set(CONVERT_SCRIPT "convert_onnx_to_fp16.py" CACHE STRING "Python script for FP16 conversion")
 
 # Checkpoint path - path to trained SCNN checkpoint
 set(CHECKPOINT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../scnn_torch/checkpoints/best.pth"
@@ -12,6 +13,7 @@ set(CHECKPOINT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../scnn_torch/checkpoints/best.
 
 # Derived file names (automatically generated from MODEL_NAME)
 set(ONNX_FILE "${MODEL_NAME}.onnx")
+set(ONNX_FP16_FILE "${MODEL_NAME}_fp16.onnx")
 set(ENGINE_FILE "${MODEL_NAME}.engine")
 
 # Common directory paths
@@ -22,8 +24,10 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
 # Full file paths
 set(ONNX_PATH ${ONNXS_DIR}/${ONNX_FILE})
+set(ONNX_FP16_PATH ${ONNXS_DIR}/${ONNX_FP16_FILE})
 set(ENGINE_PATH ${ENGINES_DIR}/${ENGINE_FILE})
 set(EXPORT_SCRIPT_PATH ${SCRIPTS_DIR}/${EXPORT_SCRIPT})
+set(CONVERT_SCRIPT_PATH ${SCRIPTS_DIR}/${CONVERT_SCRIPT})
 
 # Test configuration
 set(TEST_IMAGE_FILES
