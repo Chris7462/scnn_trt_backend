@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.18)
 project(scnn_trt_backend VERSION 1.0.0 LANGUAGES CXX CUDA)
 
 # Do not set the default build type automatically, leave it to the user
@@ -46,15 +46,8 @@ add_model_generation_dependency(scnn_trt_backend)
 # Target-specific CUDA architecture (instead of global)
 set_target_properties(scnn_trt_backend PROPERTIES
   CUDA_SEPARABLE_COMPILATION ON
-  CUDA_RESOLVE_DEVICE_SYMBOLS ON
-  CUDA_ARCHITECTURES "native"
+  CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}
 )
-
-# If native detection fails, fallback to common architectures
-if(NOT CMAKE_CUDA_ARCHITECTURES)
-  set_target_properties(scnn_trt_backend PROPERTIES
-    CUDA_ARCHITECTURES "75;86;89")  # RTX 20xx, 30xx, 40xx series
-endif()
 
 # Specify include directories for the target
 target_include_directories(scnn_trt_backend
@@ -107,9 +100,6 @@ install(DIRECTORY include/
 # Export targets and dependencies
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(CUDAToolkit)
-
-# Export include directories for downstream packages
-ament_export_include_directories(include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

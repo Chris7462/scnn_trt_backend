@@ -3,6 +3,7 @@
 // C++ standard library version: This project uses the C++17 standard library.
 #include <array>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -170,6 +171,9 @@ private:
 
   // CUDA stream
   cudaStream_t stream_;
+
+  // Thread safety
+  mutable std::mutex infer_mutex_;
 };
 
 }  // namespace scnn_trt_backend
