@@ -1,7 +1,11 @@
-cmake_minimum_required(VERSION 3.12)
-project(scnn_trt_backend VERSION 1.0.0 LANGUAGES CXX CUDA)
+cmake_minimum_required(VERSION 3.20)
 
-# Do not set the default build type automatically, leave it to the user
+project(scnn_trt_backend
+  VERSION 1.0.0
+  DESCRIPTION "TensorRT backend for SCNN lane detection"
+  LANGUAGES CXX CUDA)
+
+# Default to a Release build if the user doesn't specify one
 if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "No build type specified, defaulting to 'Release'.")
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
@@ -34,88 +38,74 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ModelGeneration.cmake)
 
 # Define the library target
-add_library(scnn_trt_backend STATIC
+add_library(${PROJECT_NAME} STATIC
   src/scnn_trt_backend.cpp
   src/normalize_kernel.cu
   src/decode_and_colorize_kernel.cu
   src/lane_utils.cpp)
 
 # Add model generation dependency to the library
-add_model_generation_dependency(scnn_trt_backend)
+add_model_generation_dependency(${PROJECT_NAME})
 
 # Target-specific CUDA architecture (instead of global)
-set_target_properties(scnn_trt_backend PROPERTIES
+set_target_properties(${PROJECT_NAME} PROPERTIES
   CUDA_SEPARABLE_COMPILATION ON
-  CUDA_RESOLVE_DEVICE_SYMBOLS ON
-  CUDA_ARCHITECTURES "native"
-)
-
-# If native detection fails, fallback to common architectures
-if(NOT CMAKE_CUDA_ARCHITECTURES)
-  set_target_properties(scnn_trt_backend PROPERTIES
-    CUDA_ARCHITECTURES "75;86;89")  # RTX 20xx, 30xx, 40xx series
-endif()
+  CUDA_RESOLVE_DEVICE_SYMBOLS ON  # Device-link relocatable objects into the static lib so consumers can link it without errors
+  CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES})
 
 # Specify include directories for the target
-target_include_directories(scnn_trt_backend
+target_include_directories(${PROJECT_NAME}
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
-    ${TENSORRT_INCLUDE_DIR}
-    ${OpenCV_INCLUDE_DIRS})
+    ${TENSORRT_INCLUDE_DIR})
 
 # Link libraries with proper visibility
-target_link_libraries(scnn_trt_backend
-  PRIVATE
-    CUDA::cudart
-    ${TENSORRT_LIBRARY}
-    ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE
+  CUDA::cudart
+  ${TENSORRT_LIBRARY}
+  opencv_imgproc)
+
+# Require C++17 for consumers
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 # Target-specific compile options
-target_compile_options(scnn_trt_backend PRIVATE
+target_compile_options(${PROJECT_NAME} PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:
     --extended-lambda
     -O3
     --use_fast_math
-    -Xcompiler=-Wall,-Wextra,-Wpedantic
+    -Xcompiler=-Wall,-Wextra
   >
   $<$<COMPILE_LANGUAGE:CXX>:
     -Wall
     -Wextra
     -Wpedantic
     -O3
-  >
-)
-
-# Require C++17 for consumers
-target_compile_features(scnn_trt_backend PUBLIC cxx_std_17)
+  >)
 
 # Install the library
-install(TARGETS scnn_trt_backend
+install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include)
+  ARCHIVE DESTINATION lib)
 
 # Install header files
 install(DIRECTORY include/
-  DESTINATION include
-  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+  DESTINATION include)
 
 # Export targets and dependencies
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(CUDAToolkit)
 
-# Export include directories for downstream packages
-ament_export_include_directories(include)
-
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
+  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
   # the following line skips cpplint (only works in a git repo)
+  # comment the line when this package is in a git repo and when
+  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
@@ -124,20 +114,17 @@ if(BUILD_TESTING)
   # Include engine symbolic link setup
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/TestingSetup.cmake)
 
-  ament_add_gtest(test_scnn_trt_backend
-    test/test_scnn_trt_backend.cpp)
-
-  # Add OpenCV includes for the test
-  target_include_directories(test_scnn_trt_backend PRIVATE
-    ${OpenCV_INCLUDE_DIRS})
+  ament_add_gtest(test_${PROJECT_NAME}
+    test/test_${PROJECT_NAME}.cpp)
 
   # Link libraries
-  target_link_libraries(test_scnn_trt_backend
-    scnn_trt_backend
-    ${OpenCV_LIBS})
+  target_link_libraries(test_${PROJECT_NAME}
+    ${PROJECT_NAME}
+    opencv_imgcodecs
+    opencv_imgproc)
 
   # Make the test depend on the symbolic link
-  add_testing_dependency(test_scnn_trt_backend)
+  add_testing_dependency(test_${PROJECT_NAME})
 endif()
 
 ament_package()
