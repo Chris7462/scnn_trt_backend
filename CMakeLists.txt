@@ -46,6 +46,7 @@ add_model_generation_dependency(scnn_trt_backend)
 # Target-specific CUDA architecture (instead of global)
 set_target_properties(scnn_trt_backend PROPERTIES
   CUDA_SEPARABLE_COMPILATION ON
+  CUDA_RESOLVE_DEVICE_SYMBOLS ON  # Device-link relocatable objects into the static lib so consumers can link it without errors
   CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}
 )
 
@@ -104,8 +105,11 @@ ament_export_dependencies(CUDAToolkit)
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
+  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
   # the following line skips cpplint (only works in a git repo)
+  # comment the line when this package is in a git repo and when
+  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
