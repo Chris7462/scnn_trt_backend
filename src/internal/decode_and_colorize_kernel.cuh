@@ -6,6 +6,9 @@
 namespace scnn_trt_backend
 {
 
+namespace internal
+{
+
 void initialize_colormap_constants();
 
 /**
@@ -28,5 +31,7 @@ void launch_decode_and_colorize_kernel(
   int num_classes, int num_lanes,
   float exist_threshold,
   cudaStream_t stream);
+
+}  // namespace internal
 
 }  // namespace scnn_trt_backend

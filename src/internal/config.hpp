@@ -5,6 +5,12 @@
 #include <cstdint>
 
 
+namespace scnn_trt_backend
+{
+
+namespace internal
+{
+
 namespace config
 {
 
@@ -38,3 +44,7 @@ constexpr std::array<std::array<uint8_t, 3>, 5> LANE_COLORMAP = {{
 }};
 
 }  // namespace config
+
+}  // namespace internal
+
+}  // namespace scnn_trt_backend

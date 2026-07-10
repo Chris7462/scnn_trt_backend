@@ -1,8 +1,11 @@
-#include "scnn_trt_backend/config.hpp"
-#include "scnn_trt_backend/decode_and_colorize_kernel.hpp"
+#include "internal/config.hpp"
+#include "internal/decode_and_colorize_kernel.cuh"
 
 
 namespace scnn_trt_backend
+{
+
+namespace internal
 {
 
 // Declare constant memory for lane colormap (5 classes)
@@ -91,5 +94,7 @@ void launch_decode_and_colorize_kernel(
     num_classes, num_lanes,
     exist_threshold);
 }
+
+}  // namespace internal
 
 }  // namespace scnn_trt_backend
