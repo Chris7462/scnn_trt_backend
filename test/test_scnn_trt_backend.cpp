@@ -31,7 +31,7 @@ protected:
     conf.num_lanes = num_lanes_;
     conf.exist_threshold = exist_threshold_;
     conf.warmup_iterations = 2;
-    conf.log_level = scnn_trt_backend::Logger::Severity::kINFO;
+    conf.log_level = scnn_trt_backend::LogLevel::kInfo;
 
     try {
       detector_ = std::make_unique<scnn_trt_backend::SCNNTrtBackend>(engine_path_, conf);
