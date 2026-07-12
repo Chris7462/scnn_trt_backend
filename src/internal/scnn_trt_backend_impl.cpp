@@ -15,10 +15,29 @@
 namespace scnn_trt_backend
 {
 
-SCNNTrtBackend::Impl::~Impl()
+namespace
 {
-  cleanup();
+
+// Allocate device memory and immediately wrap it in an owning DevPtr, so
+// there is no window where a raw, unmanaged pointer exists in caller scope.
+internal::DevPtr cuda_malloc_dev(size_t bytes)
+{
+  void * p = nullptr;
+  CUDA_CHECK(cudaMalloc(&p, bytes));
+  return internal::DevPtr(p);
 }
+
+// Same idea for pinned host memory.
+internal::HostPtr cuda_malloc_host(size_t bytes)
+{
+  void * p = nullptr;
+  CUDA_CHECK(cudaMallocHost(&p, bytes));
+  return internal::HostPtr(p);
+}
+
+} // namespace
+
+SCNNTrtBackend::Impl::~Impl() = default;
 
 void SCNNTrtBackend::Impl::initialize(
   const std::string & engine_path, const SCNNTrtBackend::Config & config)
@@ -35,45 +54,48 @@ SCNNResult SCNNTrtBackend::Impl::infer(
   const cv::Mat & image, const SCNNTrtBackend::Config & config)
 {
   // Preprocess directly into GPU memory
-  preprocess_image(image, buffers_.device_input, config, stream_);
+  preprocess_image(
+    image, static_cast<float *>(buffers_.device_input.get()), config, stream_.get());
 
   // Run inference
-  if (!context_->enqueueV3(stream_)) {
+  if (!context_->enqueueV3(stream_.get())) {
     throw internal::TensorRTException("Failed to enqueue inference");
   }
 
   // Launch GPU decode kernel directly on inference output
   internal::launch_decode_and_colorize_kernel(
-    buffers_.device_seg_output,
-    buffers_.device_exist_output,
-    buffers_.device_decoded_mask,
+    static_cast<float *>(buffers_.device_seg_output.get()),
+    static_cast<float *>(buffers_.device_exist_output.get()),
+    static_cast<uchar3 *>(buffers_.device_decoded_mask.get()),
     config.width, config.height,
     config.num_classes, config.num_lanes,
     config.exist_threshold,
-    stream_
+    stream_.get()
   );
 
   // Async copy decoded mask to pinned memory
-  CUDA_CHECK(cudaMemcpyAsync(buffers_.pinned_seg_output, buffers_.device_decoded_mask,
-    mask_bytes_, cudaMemcpyDeviceToHost, stream_));
+  CUDA_CHECK(cudaMemcpyAsync(buffers_.pinned_seg_output.get(), buffers_.device_decoded_mask.get(),
+    mask_bytes_, cudaMemcpyDeviceToHost, stream_.get()));
 
   // Async copy existence output to pinned memory
-  CUDA_CHECK(cudaMemcpyAsync(buffers_.pinned_exist_output, buffers_.device_exist_output,
-    exist_output_size_, cudaMemcpyDeviceToHost, stream_));
+  CUDA_CHECK(cudaMemcpyAsync(
+    buffers_.pinned_exist_output.get(), buffers_.device_exist_output.get(),
+    exist_output_size_, cudaMemcpyDeviceToHost, stream_.get()));
 
   // Wait for completion
-  CUDA_CHECK(cudaStreamSynchronize(stream_));
+  CUDA_CHECK(cudaStreamSynchronize(stream_.get()));
 
   // Build result
   SCNNResult result;
 
   // Create cv::Mat from pinned memory and clone
-  cv::Mat segmentation(config.height, config.width, CV_8UC3, buffers_.pinned_seg_output);
+  cv::Mat segmentation(config.height, config.width, CV_8UC3, buffers_.pinned_seg_output.get());
   result.seg_pred = segmentation.clone();
 
   // Copy existence probabilities (apply sigmoid since we store raw logits)
+  const float * pinned_exist = static_cast<const float *>(buffers_.pinned_exist_output.get());
   for (int i = 0; i < config.num_lanes; ++i) {
-    float logit = buffers_.pinned_exist_output[i];
+    float logit = pinned_exist[i];
     result.exist_pred[i] = 1.0f / (1.0f + std::exp(-logit));
   }
 
@@ -175,33 +197,31 @@ void SCNNTrtBackend::Impl::initialize_memory(const SCNNTrtBackend::Config & conf
   exist_output_size_ = 1 * config.num_lanes * sizeof(float);
   mask_bytes_ = config.height * config.width * sizeof(uchar3);
 
-  // Allocate pinned host memory
-  CUDA_CHECK(cudaMallocHost(&buffers_.pinned_input, input_size_));
-  CUDA_CHECK(cudaMallocHost(&buffers_.pinned_seg_output, mask_bytes_));
-  CUDA_CHECK(cudaMallocHost(&buffers_.pinned_exist_output, exist_output_size_));
+  // Allocate pinned host memory. If a later allocation throws, everything
+  // already assigned above is freed automatically as the exception unwinds -
+  // no manual cleanup() bookkeeping.
+  buffers_.pinned_input = cuda_malloc_host(input_size_);
+  buffers_.pinned_seg_output = cuda_malloc_host(mask_bytes_);
+  buffers_.pinned_exist_output = cuda_malloc_host(exist_output_size_);
 
   // Allocate device memory
-  CUDA_CHECK(cudaMalloc(&buffers_.device_input, input_size_));
-  CUDA_CHECK(cudaMalloc(&buffers_.device_seg_output, seg_output_size_));
-  CUDA_CHECK(cudaMalloc(&buffers_.device_exist_output, exist_output_size_));
-  CUDA_CHECK(cudaMalloc(&buffers_.device_temp_buffer, input_size_));
-  CUDA_CHECK(cudaMalloc(&buffers_.device_decoded_mask, mask_bytes_));
+  buffers_.device_input = cuda_malloc_dev(input_size_);
+  buffers_.device_seg_output = cuda_malloc_dev(seg_output_size_);
+  buffers_.device_exist_output = cuda_malloc_dev(exist_output_size_);
+  buffers_.device_temp_buffer = cuda_malloc_dev(input_size_);
+  buffers_.device_decoded_mask = cuda_malloc_dev(mask_bytes_);
 
   // Set tensor addresses
-  if (!context_->setTensorAddress(input_name_.c_str(),
-    static_cast<void *>(buffers_.device_input)))
-  {
+  if (!context_->setTensorAddress(input_name_.c_str(), buffers_.device_input.get())) {
     throw internal::TensorRTException("Failed to set input tensor address");
   }
 
-  if (!context_->setTensorAddress(seg_output_name_.c_str(),
-    static_cast<void *>(buffers_.device_seg_output)))
-  {
+  if (!context_->setTensorAddress(seg_output_name_.c_str(), buffers_.device_seg_output.get())) {
     throw internal::TensorRTException("Failed to set seg_pred tensor address");
   }
 
-  if (!context_->setTensorAddress(exist_output_name_.c_str(),
-    static_cast<void *>(buffers_.device_exist_output)))
+  if (!context_->setTensorAddress(
+      exist_output_name_.c_str(), buffers_.device_exist_output.get()))
   {
     throw internal::TensorRTException("Failed to set exist_pred tensor address");
   }
@@ -209,10 +229,9 @@ void SCNNTrtBackend::Impl::initialize_memory(const SCNNTrtBackend::Config & conf
 
 void SCNNTrtBackend::Impl::initialize_streams()
 {
-  CUDA_CHECK(cudaStreamCreate(&stream_));
-  if (!stream_) {
-    throw internal::TensorRTException("Failed to create CUDA stream");
-  }
+  cudaStream_t raw = nullptr;
+  CUDA_CHECK(cudaStreamCreate(&raw));
+  stream_.reset(raw);
 }
 
 void SCNNTrtBackend::Impl::initialize_constants()
@@ -224,76 +243,30 @@ void SCNNTrtBackend::Impl::initialize_constants()
 
 void SCNNTrtBackend::Impl::warmup_engine(const SCNNTrtBackend::Config & config)
 {
-  CUDA_CHECK(cudaMemsetAsync(buffers_.device_input, 0, input_size_, stream_));
+  CUDA_CHECK(cudaMemsetAsync(buffers_.device_input.get(), 0, input_size_, stream_.get()));
 
   for (int i = 0; i < config.warmup_iterations; ++i) {
     // Run inference pipeline once to initialize CUDA kernels
-    if (!context_->enqueueV3(stream_)) {
+    if (!context_->enqueueV3(stream_.get())) {
       throw internal::TensorRTException("Failed to enqueue warmup inference");
     }
 
     // Launch decode kernel to warm up all GPU kernels
     internal::launch_decode_and_colorize_kernel(
-      buffers_.device_seg_output,
-      buffers_.device_exist_output,
-      buffers_.device_decoded_mask,
+      static_cast<float *>(buffers_.device_seg_output.get()),
+      static_cast<float *>(buffers_.device_exist_output.get()),
+      static_cast<uchar3 *>(buffers_.device_decoded_mask.get()),
       config.width, config.height,
       config.num_classes, config.num_lanes,
       config.exist_threshold,
-      stream_
+      stream_.get()
     );
 
     // Synchronize to ensure completion
-    CUDA_CHECK(cudaStreamSynchronize(stream_));
+    CUDA_CHECK(cudaStreamSynchronize(stream_.get()));
   }
 
   std::cout << "Engine warmed up with " << config.warmup_iterations << " iterations" << std::endl;
-}
-
-void SCNNTrtBackend::Impl::cleanup() noexcept
-{
-  // Free pinned host memory
-  if (buffers_.pinned_input) {
-    cudaFreeHost(buffers_.pinned_input);
-  }
-
-  if (buffers_.pinned_seg_output) {
-    cudaFreeHost(buffers_.pinned_seg_output);
-  }
-
-  if (buffers_.pinned_exist_output) {
-    cudaFreeHost(buffers_.pinned_exist_output);
-  }
-
-  // Free device memory
-  if (buffers_.device_input) {
-    cudaFree(buffers_.device_input);
-  }
-
-  if (buffers_.device_seg_output) {
-    cudaFree(buffers_.device_seg_output);
-  }
-
-  if (buffers_.device_exist_output) {
-    cudaFree(buffers_.device_exist_output);
-  }
-
-  if (buffers_.device_temp_buffer) {
-    cudaFree(buffers_.device_temp_buffer);
-  }
-
-  if (buffers_.device_decoded_mask) {
-    cudaFree(buffers_.device_decoded_mask);
-  }
-
-  // Reset all pointers to nullptr
-  buffers_ = MemoryBuffers{};
-
-  // Destroy stream safely
-  if (stream_) {
-    cudaStreamDestroy(stream_);
-    stream_ = nullptr;
-  }
 }
 
 void SCNNTrtBackend::Impl::preprocess_image(
@@ -301,19 +274,19 @@ void SCNNTrtBackend::Impl::preprocess_image(
   cudaStream_t stream) const
 {
   // Step 1: Resize image using OpenCV (on CPU)
-  cv::Mat img_wrapper(config.height, config.width, CV_32FC3, buffers_.pinned_input);
+  cv::Mat img_wrapper(config.height, config.width, CV_32FC3, buffers_.pinned_input.get());
   cv::resize(image, img_wrapper, cv::Size(config.width, config.height));
 
   // Step 2: Convert to float (on CPU)
   img_wrapper.convertTo(img_wrapper, CV_32FC3, 1.0f / 255.0f);
 
   // Step 3: Upload resized float image to GPU
-  CUDA_CHECK(cudaMemcpyAsync(buffers_.device_temp_buffer, img_wrapper.data,
+  CUDA_CHECK(cudaMemcpyAsync(buffers_.device_temp_buffer.get(), img_wrapper.data,
     input_size_, cudaMemcpyHostToDevice, stream));
 
   // Step 4: Launch normalization kernel
   internal::launch_normalize_kernel(
-    buffers_.device_temp_buffer,
+    static_cast<float *>(buffers_.device_temp_buffer.get()),
     output,
     config.width, config.height,
     stream);

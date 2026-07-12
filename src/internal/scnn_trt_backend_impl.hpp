@@ -17,6 +17,7 @@
 // local headers
 #include "scnn_trt_backend/scnn_trt_backend.hpp"
 #include "internal/trt_logger.hpp"
+#include "internal/cuda_raii.hpp"
 
 // NOTE: This is a private implementation header. It lives under src/internal/
 // and is never installed - it must not be included by any consumer of the
@@ -48,9 +49,6 @@ private:
   void initialize_constants();
   void warmup_engine(const SCNNTrtBackend::Config & config);
 
-  // Memory management
-  void cleanup() noexcept;
-
   // Helper methods
   std::vector<uint8_t> load_engine_file(const std::string & engine_path) const;
   void preprocess_image(
@@ -75,29 +73,27 @@ private:
   size_t exist_output_size_ = 0;
   size_t mask_bytes_ = 0;
 
-  // Memory buffers
+  // Memory buffers. Ownership via RAII smart pointers (see cuda_raii.hpp) -
+  // no manual cleanup() bookkeeping needed; destruction order below (and
+  // stream_ declared last) ensures buffers_ is torn down before the stream
+  // that operations on it were queued against.
   struct MemoryBuffers
   {
     // Pinned host memory
-    float * pinned_input;
-    uchar3 * pinned_seg_output;
-    float * pinned_exist_output;
+    internal::HostPtr pinned_input;
+    internal::HostPtr pinned_seg_output;
+    internal::HostPtr pinned_exist_output;
 
     // Device memory
-    float * device_input;           // TensorRT engine input
-    float * device_seg_output;      // TensorRT seg_pred output [1, 5, H, W]
-    float * device_exist_output;    // TensorRT exist_pred output [1, 4]
-    float * device_temp_buffer;     // For image preprocessing
-    uchar3 * device_decoded_mask;   // Decoded segmentation mask
-
-    MemoryBuffers()
-    : pinned_input(nullptr), pinned_seg_output(nullptr), pinned_exist_output(nullptr),
-      device_input(nullptr), device_seg_output(nullptr), device_exist_output(nullptr),
-      device_temp_buffer(nullptr), device_decoded_mask(nullptr) {}
+    internal::DevPtr device_input;         // TensorRT engine input
+    internal::DevPtr device_seg_output;    // TensorRT seg_pred output [1, 5, H, W]
+    internal::DevPtr device_exist_output;  // TensorRT exist_pred output [1, 4]
+    internal::DevPtr device_temp_buffer;   // For image preprocessing
+    internal::DevPtr device_decoded_mask;  // Decoded segmentation mask
   } buffers_;
 
   // CUDA stream for pipelining
-  cudaStream_t stream_ = nullptr;
+  internal::StreamPtr stream_;
 };
 
 }  // namespace scnn_trt_backend
